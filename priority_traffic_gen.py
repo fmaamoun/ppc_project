@@ -15,7 +15,7 @@ def run_priority_traffic(queues, lights_pid):
         msg = VehicleMessage(vehicle_id, source, dest, priority=True)
         send_obj_message(queues[source], msg)
 
-        # Envoie d'un signal au process des feux [à coder]
+        # TODO : Envoie d'un signal au process des feux
 
         time.sleep(PRIORITY_GEN_INTERVAL)
 

@@ -1,12 +1,10 @@
 import multiprocessing
 import time
 import sysv_ipc
-import pickle
 
 from normal_traffic_gen import main as normal_main
 from priority_traffic_gen import main as priority_main
 from ipc_utils import init_message_queues, receive_obj_message
-from common import VehicleMessage
 
 
 
