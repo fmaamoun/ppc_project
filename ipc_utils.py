@@ -1,85 +1,70 @@
-import sysv_ipc
+import sys
 import pickle
-from common import VehicleMessage, LightState
+import sysv_ipc
 
-# ----------------------------
-# Constants for SysV IPC
-# ----------------------------
+# Define unique keys for each road section's message queue.
+QUEUE_KEYS = {
+    'N': 0x2000,
+    'S': 0x2001,
+    'E': 0x2002,
+    'W': 0x2003
+}
 
-# Message queue keys for the four road sections (North, South, East, West)
-KEY_N = 1
-KEY_S = 2
-KEY_E = 3
-KEY_W = 4
+def init_message_queues():
+    """
+    Initialize message queues for each road section using SysV IPC.
 
-# Shared memory configuration
-SHM_KEY = 5
-SHM_SIZE = 1024  # 1KB shared memory
-
-# ----------------------------
-# Message Queue Functions
-# ----------------------------
-
-def init_message_queues() -> dict:
-    """Initialize and clear message queues for N, S, E, W."""
-    queues = {
-        "N": sysv_ipc.MessageQueue(KEY_N, sysv_ipc.IPC_CREAT),
-        "S": sysv_ipc.MessageQueue(KEY_S, sysv_ipc.IPC_CREAT),
-        "E": sysv_ipc.MessageQueue(KEY_E, sysv_ipc.IPC_CREAT),
-        "W": sysv_ipc.MessageQueue(KEY_W, sysv_ipc.IPC_CREAT)
-    }
-
-    # Empty all pending messages from previous executions
-    for queue in queues.values():
+    Returns:
+        A dictionary mapping each direction ('N', 'S', 'E', 'W') to its MessageQueue.
+    """
+    queues = {}
+    for direction, key in QUEUE_KEYS.items():
         try:
-            while True:
-                queue.receive(block=False)  # Read and delete
-        except sysv_ipc.BusyError:
-            pass
-
+            queues[direction] = sysv_ipc.MessageQueue(key, sysv_ipc.IPC_CREAT)
+        except sysv_ipc.Error as e:
+            print(f"[IPC_UTILS] Error creating message queue for {direction}: {e}")
+            sys.exit(1)
     return queues
 
-def send_obj_message(queue: sysv_ipc.MessageQueue, obj: VehicleMessage):
-    """Send a pickled object to a SysV message queue."""
-    queue.send(pickle.dumps(obj), type=1)
+def send_obj_message(queue, obj, msg_type=1):
+    """
+    Serialize and send an object through the provided SysV IPC MessageQueue.
 
-def receive_obj_message(queue: sysv_ipc.MessageQueue, block: bool = False):
-    """Receive and unpickle an object from a SysV message queue."""
+    Args:
+        queue: A sysv_ipc.MessageQueue instance.
+        obj: Python object to serialize and send.
+        msg_type: The message type (default is 1).
+    """
     try:
-        data, _type = queue.receive(block=block)
-        return pickle.loads(data)
+        data = pickle.dumps(obj)
+        queue.send(data, type=msg_type)
+    except Exception as e:
+        print(f"[IPC_UTILS] Error sending object: {e}")
+
+
+def receive_obj_message(queue, block=True, msg_type=0):
+    """
+    Receive and deserialize an object from a SysV IPC MessageQueue.
+
+    Args:
+        queue: A sysv_ipc.MessageQueue instance.
+        block: If True, block until a message is available; otherwise, return None.
+        msg_type: The message type to receive (0 means any type).
+
+    Returns:
+        The deserialized Python object if a message is received; otherwise, None.
+    """
+    try:
+        if block:
+            message, mtype = queue.receive(type=msg_type)
+        else:
+            message, mtype = queue.receive(type=msg_type, block=False)  # No timeout
+
+        obj = pickle.loads(message)
+        return obj
     except sysv_ipc.BusyError:
         return None
+    except Exception as e:
+        print(f"[IPC_UTILS] Error receiving message: {e}")
+        return None
 
-# ----------------------------
-# Shared Memory Functions
-# ----------------------------
-
-def init_shared_light_state() -> sysv_ipc.SharedMemory:
-    """Initialize and clear the shared memory for traffic light state with default values."""
-    shm = sysv_ipc.SharedMemory(SHM_KEY, sysv_ipc.IPC_CREAT, size=SHM_SIZE)
-
-    # Ensure shared memory has a valid initial state
-    shm.attach()
-    raw_data = shm.read(SHM_SIZE).rstrip(b'\x00')
-    if not raw_data:  # If empty, write an initial valid LightState
-        initial_state = LightState(north=1, south=1, east=0, west=0)
-        shm.write(pickle.dumps(initial_state))
-    shm.detach()
-
-    return shm
-
-
-def write_light_state(shm: sysv_ipc.SharedMemory, obj: LightState):
-    """Write a pickled object to shared memory after clearing it."""
-    shm.attach()
-    shm.write(b'\x00' * SHM_SIZE)  # Clear memory
-    shm.write(pickle.dumps(obj))  # Write object
-    shm.detach()
-
-def read_light_state(shm: sysv_ipc.SharedMemory) -> LightState:
-    """Read and unpickle an object from shared memory."""
-    shm.attach()
-    raw_data = shm.read(SHM_SIZE).rstrip(b'\x00')  # Remove null bytes
-    shm.detach()
-    return pickle.loads(raw_data)

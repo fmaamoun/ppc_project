@@ -1,33 +1,34 @@
-# display.py
-import sysv_ipc
-import sys
-
-DISPLAY_QUEUE_KEY = 0x1111  # La même clé utilisée dans coordinator.py
+import socket
+from common import DISPLAY_HOST, DISPLAY_PORT
 
 def main():
-    # On essaye de se connecter à la file de messages déjà créée par coordinator
-    try:
-        display_queue = sysv_ipc.MessageQueue(DISPLAY_QUEUE_KEY)
-    except sysv_ipc.ExistentialError:
-        print(f"[DISPLAY] Erreur : impossible d'accéder à la file de messages {hex(DISPLAY_QUEUE_KEY)}.")
-        sys.exit(1)
+    """
+    Entry point for the display process.
 
-    print("[DISPLAY] Connected to display queue. Waiting for updates... (Ctrl+C pour quitter)")
+    Sets up a TCP server on DISPLAY_HOST:DISPLAY_PORT and prints incoming messages.
+    """
+    # Create a TCP socket server.
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((DISPLAY_HOST, DISPLAY_PORT))
+    server_socket.listen(1)
+    print(f"[DISPLAY] Server listening on {DISPLAY_HOST}:{DISPLAY_PORT}. Waiting for connection...")
+
+    conn, addr = server_socket.accept()
+    print(f"[DISPLAY] Connection established with {addr}.")
 
     try:
         while True:
-            # On attend un message de type=1 (celui envoyé par coordinator)
-            # La méthode receive retourne (message_bytes, msg_type)
-            message_bytes, msg_type = display_queue.receive(type=1)
-            if message_bytes:
-                message_str = message_bytes.decode('utf-8')
-                print(message_str)
+            data = conn.recv(1024)
+            if not data:
+                break  # Connection closed
+            messages = data.decode('utf-8').strip().split("\n")
+            for msg in messages:
+                if msg:
+                    print(msg)
     except KeyboardInterrupt:
-        print("[DISPLAY] Arrêt par l'utilisateur, fermeture...")
-
-    # Éventuellement on peut appeler display_queue.remove() si on veut détruire la queue,
-    # mais souvent on laisse coordinator gérer ça (ou la laisser exister).
-    # display_queue.remove()
-
-if __name__ == "__main__":
-    main()
+        print("[DISPLAY] Shutting down display server.")
+    except Exception as e:
+        print(f"[DISPLAY] Error: {e}")
+    finally:
+        conn.close()
+        server_socket.close()

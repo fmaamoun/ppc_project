@@ -1,132 +1,88 @@
-# coordinator.py
 import time
-import multiprocessing
 import sys
-import sysv_ipc
+from ipc_utils import receive_obj_message
 
-# On importe les fonctions/méthodes existantes
-# - init_message_queues : pour initialiser les queues des véhicules
-# - receive_obj_message : pour lire un véhicule depuis la queue appropriée
-# - init_shared_light_state : pour initialiser la mémoire partagée (état des feux)
-# - read_light_state : pour lire l'état des feux depuis la mémoire partagée
-from ipc_utils import (
-    init_message_queues,
-    receive_obj_message,
-    init_shared_light_state,
-    read_light_state
-)
-from normal_traffic_gen import main as normal_traffic_main
-from lights import main as lights_main
-
-# Définissons une clé pour la file de messages "display"
-DISPLAY_QUEUE_KEY = 0x1111  # À réutiliser dans display.py
 
 def can_vehicle_proceed(vehicle, light_state):
     """
-    Détermine si un véhicule peut passer (feu vert) ou doit attendre (feu rouge).
+    Determines whether a vehicle can pass based on the current traffic light state.
+
+    Vehicles from the North or South require a green light in the North-South direction.
+    Vehicles from the East or West require a green light in the East-West direction.
     """
     if vehicle.source_road in ["N", "S"]:
-        return light_state.north == 1  # Feu Nord-Sud doit être vert
+        return light_state.north == 1
     else:
-        return light_state.east == 1   # Feu Est-Ouest doit être vert
+        return light_state.east == 1
 
-def process_vehicles(queues, shm, display_queue):
+
+def process_vehicles(queues, shared_state, display_socket):
     """
-    Gère le flux de véhicules :
-      - lit l'état du feu,
-      - traite les véhicules en attente et nouveaux véhicules,
-      - envoie des messages dans display_queue pour l'affichage.
+    Main loop to process vehicles:
+      - Reads the current traffic light state.
+      - Processes vehicles from the SysV IPC message queues and those waiting.
+      - Sends status updates to the display process via the TCP socket.
     """
 
-    def send_update(msg):
+    def send_update(message):
         """
-        Envoie un message dans la file display_queue (type=1).
-        On encode la chaîne en UTF-8.
+        Sends an update message to the display process over the TCP socket.
         """
         try:
-            display_queue.send(msg.encode('utf-8'), type=1)
-        except sysv_ipc.ExistentialError:
-            print("[COORDINATOR] Erreur: la file d'affichage n'existe plus.")
-            sys.exit(1)
+            display_socket.sendall((message + "\n").encode('utf-8'))
+        except Exception as e:
+            print(f"[COORDINATOR] Error sending update: {e}")
 
     send_update("[COORDINATOR] Started managing vehicle flow...")
+    waiting_vehicles = []  # List to hold vehicles waiting for a green light
 
-    waiting_vehicles = []  # Liste des véhicules en attente
-    last_light_state = read_light_state(shm)
+    last_light_state = shared_state.get('state', None)
+    send_update(f"[COORDINATOR] 🚦 Traffic light changed: {last_light_state}")
 
     while True:
-        current_light_state = read_light_state(shm)
+        current_light_state = shared_state.get('state', None)
+        if current_light_state is None:
+            sys.exit(1)
 
-        # Vérifier si le feu a changé
+        # Check for traffic light state change.
         if current_light_state != last_light_state:
-            send_update(f"[COORDINATOR] 🚦 Light changed: {current_light_state}")
+            send_update(f"[COORDINATOR] 🚦 Traffic light changed: {current_light_state}")
             last_light_state = current_light_state
 
-        # 1. Gérer les véhicules déjà en attente
-        new_waiting_vehicles = []
-        for vehicle in waiting_vehicles:
-            if can_vehicle_proceed(vehicle, current_light_state):
-                send_update(
-                    f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                    f"to {vehicle.dest_road} PASSES (Previously Waiting)."
-                )
-            else:
-                new_waiting_vehicles.append(vehicle)
-        waiting_vehicles = new_waiting_vehicles
-
-        # 2. Récupérer les nouveaux véhicules des 4 directions
-        for direction in ["N", "S", "E", "W"]:
-            vehicle = receive_obj_message(queues[direction], block=False)
-            if vehicle:
+            # Process vehicles that were waiting.
+            new_waiting = []
+            for vehicle in waiting_vehicles:
                 if can_vehicle_proceed(vehicle, current_light_state):
                     send_update(
-                        f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                        f"to {vehicle.dest_road} PASSES."
-                    )
+                        f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} to {vehicle.dest_road} PASSES (was waiting).")
+                else:
+                    new_waiting.append(vehicle)
+            waiting_vehicles = new_waiting
+
+        # Process newly arrived vehicles from each direction.
+        for direction in ["N", "S", "E", "W"]:
+            # Continue receiving all messages from the queue in non-blocking mode.
+            while True:
+                vehicle = receive_obj_message(queues[direction], block=False)
+                if vehicle is None:
+                    break
+                if can_vehicle_proceed(vehicle, current_light_state):
+                    send_update(
+                        f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} to {vehicle.dest_road} PASSES.")
                 else:
                     send_update(
-                        f"[COORDINATOR] ❌ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                        f"to {vehicle.dest_road} WAITS (Red Light)."
-                    )
+                        f"[COORDINATOR] ❌ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} to {vehicle.dest_road} WAITS (red light).")
                     waiting_vehicles.append(vehicle)
 
-        time.sleep(1)  # Petite pause pour éviter de tourner trop vite
+        time.sleep(1)  # Small delay to avoid busy looping
 
-def main():
+
+def main(queues, shared_state, display_socket):
     """
-    Point d'entrée du coordinator :
-      - on initialise tout,
-      - on lance les processus lights + traffic,
-      - on rentre dans la boucle de process_vehicles.
+    Entry point for the coordinator process.
+
+    - Reads messages from SysV IPC queues.
+    - Reads shared memory for traffic light state.
+    - Sends real-time status updates to the display process.
     """
-    # 1. Création / récupération des queues pour le trafic
-    queues = init_message_queues()
-
-    # 2. Mémoire partagée pour les feux
-    shm = init_shared_light_state()
-
-    # 3. Création (ou récupération) de la queue d'affichage
-    #    IPC_CREAT : crée la queue si elle n'existe pas, sinon l'ouvre
-    #    On évite IPC_EXCL pour ne pas bloquer si la queue existe déjà
-    try:
-        display_queue = sysv_ipc.MessageQueue(DISPLAY_QUEUE_KEY, sysv_ipc.IPC_CREAT)
-    except sysv_ipc.ExistentialError:
-        print(f"[COORDINATOR] Impossible de créer/ouvrir la file de messages {hex(DISPLAY_QUEUE_KEY)}")
-        sys.exit(1)
-
-    # 4. Lancement du processus de gestion des feux
-    lights_process = multiprocessing.Process(target=lights_main)
-    lights_process.start()
-
-    # 5. Attendre un peu pour s'assurer que lights_main ait bien initialisé la mémoire
-    time.sleep(1)
-
-    # 6. Lancement du processus de génération de trafic
-    normal_process = multiprocessing.Process(target=normal_traffic_main, args=(queues,))
-    normal_process.start()
-
-    # 7. On démarre la boucle principale qui gère les véhicules
-    process_vehicles(queues, shm, display_queue)
-
-if __name__ == "__main__":
-    main()
+    process_vehicles(queues, shared_state, display_socket)
