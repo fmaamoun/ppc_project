@@ -1,6 +1,14 @@
+# coordinator.py
 import time
 import multiprocessing
+import sys
 import sysv_ipc
+
+# On importe les fonctions/méthodes existantes
+# - init_message_queues : pour initialiser les queues des véhicules
+# - receive_obj_message : pour lire un véhicule depuis la queue appropriée
+# - init_shared_light_state : pour initialiser la mémoire partagée (état des feux)
+# - read_light_state : pour lire l'état des feux depuis la mémoire partagée
 from ipc_utils import (
     init_message_queues,
     receive_obj_message,
@@ -10,78 +18,115 @@ from ipc_utils import (
 from normal_traffic_gen import main as normal_traffic_main
 from lights import main as lights_main
 
+# Définissons une clé pour la file de messages "display"
+DISPLAY_QUEUE_KEY = 0x1111  # À réutiliser dans display.py
+
 def can_vehicle_proceed(vehicle, light_state):
     """
-    Determines if a vehicle can proceed based on the traffic light state.
-    Vehicles move only when the light is green.
+    Détermine si un véhicule peut passer (feu vert) ou doit attendre (feu rouge).
     """
     if vehicle.source_road in ["N", "S"]:
-        return light_state.north == 1  # North-South light must be green
+        return light_state.north == 1  # Feu Nord-Sud doit être vert
     else:
-        return light_state.east == 1  # East-West light must be green
+        return light_state.east == 1   # Feu Est-Ouest doit être vert
 
-def process_vehicles(queues, shm):
+def process_vehicles(queues, shm, display_queue):
     """
-    Continuously processes new vehicles and rechecks waiting ones when lights change.
+    Gère le flux de véhicules :
+      - lit l'état du feu,
+      - traite les véhicules en attente et nouveaux véhicules,
+      - envoie des messages dans display_queue pour l'affichage.
     """
-    print("[COORDINATOR] Started managing vehicle flow...")
 
-    waiting_vehicles = []  # Store vehicles that couldn't pass
-    last_light_state = read_light_state(shm)  # Initial light state
+    def send_update(msg):
+        """
+        Envoie un message dans la file display_queue (type=1).
+        On encode la chaîne en UTF-8.
+        """
+        try:
+            display_queue.send(msg.encode('utf-8'), type=1)
+        except sysv_ipc.ExistentialError:
+            print("[COORDINATOR] Erreur: la file d'affichage n'existe plus.")
+            sys.exit(1)
+
+    send_update("[COORDINATOR] Started managing vehicle flow...")
+
+    waiting_vehicles = []  # Liste des véhicules en attente
+    last_light_state = read_light_state(shm)
 
     while True:
-        current_light_state = read_light_state(shm)  # Check current light state
+        current_light_state = read_light_state(shm)
 
-        # 🚦 First, print light change **before handling vehicles**
+        # Vérifier si le feu a changé
         if current_light_state != last_light_state:
-            print(f"[COORDINATOR] 🚦 Light changed: {current_light_state}")
-            last_light_state = current_light_state  # Update last known light state
+            send_update(f"[COORDINATOR] 🚦 Light changed: {current_light_state}")
+            last_light_state = current_light_state
 
-        # 🚗 Process waiting vehicles first
+        # 1. Gérer les véhicules déjà en attente
         new_waiting_vehicles = []
         for vehicle in waiting_vehicles:
             if can_vehicle_proceed(vehicle, current_light_state):
-                print(f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                      f"to {vehicle.dest_road} PASSES (Previously Waiting).")
+                send_update(
+                    f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
+                    f"to {vehicle.dest_road} PASSES (Previously Waiting)."
+                )
             else:
-                new_waiting_vehicles.append(vehicle)  # Still can't pass
-        waiting_vehicles = new_waiting_vehicles  # Update waiting list
+                new_waiting_vehicles.append(vehicle)
+        waiting_vehicles = new_waiting_vehicles
 
-        # 🚗 Handle new vehicles immediately
+        # 2. Récupérer les nouveaux véhicules des 4 directions
         for direction in ["N", "S", "E", "W"]:
             vehicle = receive_obj_message(queues[direction], block=False)
             if vehicle:
                 if can_vehicle_proceed(vehicle, current_light_state):
-                    print(f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                          f"to {vehicle.dest_road} PASSES.")
+                    send_update(
+                        f"[COORDINATOR] ✅ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
+                        f"to {vehicle.dest_road} PASSES."
+                    )
                 else:
-                    print(f"[COORDINATOR] ❌ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
-                          f"to {vehicle.dest_road} WAITS (Red Light).")
-                    waiting_vehicles.append(vehicle)  # Store in waiting list
+                    send_update(
+                        f"[COORDINATOR] ❌ Vehicle {vehicle.vehicle_id} from {vehicle.source_road} "
+                        f"to {vehicle.dest_road} WAITS (Red Light)."
+                    )
+                    waiting_vehicles.append(vehicle)
 
-        time.sleep(1)  # Avoid excessive CPU usage
+        time.sleep(1)  # Petite pause pour éviter de tourner trop vite
 
 def main():
     """
-    Initializes message queues and shared memory,
-    then starts vehicle processing and normal traffic generation.
+    Point d'entrée du coordinator :
+      - on initialise tout,
+      - on lance les processus lights + traffic,
+      - on rentre dans la boucle de process_vehicles.
     """
+    # 1. Création / récupération des queues pour le trafic
     queues = init_message_queues()
+
+    # 2. Mémoire partagée pour les feux
     shm = init_shared_light_state()
 
-    # Start light process first
+    # 3. Création (ou récupération) de la queue d'affichage
+    #    IPC_CREAT : crée la queue si elle n'existe pas, sinon l'ouvre
+    #    On évite IPC_EXCL pour ne pas bloquer si la queue existe déjà
+    try:
+        display_queue = sysv_ipc.MessageQueue(DISPLAY_QUEUE_KEY, sysv_ipc.IPC_CREAT)
+    except sysv_ipc.ExistentialError:
+        print(f"[COORDINATOR] Impossible de créer/ouvrir la file de messages {hex(DISPLAY_QUEUE_KEY)}")
+        sys.exit(1)
+
+    # 4. Lancement du processus de gestion des feux
     lights_process = multiprocessing.Process(target=lights_main)
     lights_process.start()
 
-    # Ensure lights have initialized memory before reading
+    # 5. Attendre un peu pour s'assurer que lights_main ait bien initialisé la mémoire
     time.sleep(1)
 
-    # Start normal traffic generation
+    # 6. Lancement du processus de génération de trafic
     normal_process = multiprocessing.Process(target=normal_traffic_main, args=(queues,))
     normal_process.start()
 
-    # Run the coordinator
-    process_vehicles(queues, shm)
+    # 7. On démarre la boucle principale qui gère les véhicules
+    process_vehicles(queues, shm, display_queue)
 
 if __name__ == "__main__":
     main()
