@@ -7,15 +7,15 @@ from coordinator import main as coordinator_main
 from display import main as display_main
 from lights import main as lights_main
 from normal_traffic_gen import main as normal_traffic_main
+from priority_traffic_gen import main as priority_traffic_main
 from common import DISPLAY_HOST, DISPLAY_PORT, LightState
 
 def main():
     """
     Initializes all processes required for the simulation.
     """
-
     # 1. Start the display process first (TCP server).
-    display_process = multiprocessing.Process(target=display_main)
+    display_process = multiprocessing.Process(target=display_main, name="Display Process")
     display_process.start()
     print("[MAIN] Display process started.")
 
@@ -23,21 +23,27 @@ def main():
     manager = multiprocessing.Manager()
     shared_state = manager.dict()
     shared_state['state'] = LightState(north=1, south=1, east=0, west=0)  # Initial state
+    shared_state['priority_direction'] = None  # Initial state
 
     # 3. Initialize the SysV IPC message queues.
     queues = init_message_queues()
 
     # 4. Start the lights process.
-    lights_process = multiprocessing.Process(target=lights_main, args=(shared_state,))
+    lights_process = multiprocessing.Process(target=lights_main, args=(shared_state,), name="Lights Process")
     lights_process.start()
     print("[MAIN] Lights process started.")
 
     # 5. Start the normal traffic generation process.
-    normal_process = multiprocessing.Process(target=normal_traffic_main, args=(queues,))
+    normal_process = multiprocessing.Process(target=normal_traffic_main, args=(queues,), name="Normal Traffic Process")
     normal_process.start()
     print("[MAIN] Normal traffic generation process started.")
 
-    # 6. Establish a TCP connection to the display process.
+    # 6. Start the priority traffic generation process
+    priority_process = multiprocessing.Process(target=priority_traffic_main, args=(queues, lights_process.pid, shared_state), name="Priority Traffic Process")
+    priority_process.start()
+    print("[MAIN] Priority traffic generation process started.")
+
+    # 7. Establish a TCP connection to the display process.
     connected = False
     max_retries = 10  # Retry limit
     retries = 0
@@ -50,21 +56,25 @@ def main():
         except Exception as e:
             print(f"[MAIN] Waiting for display process... {e}")
             retries += 1
-            time.sleep(2)
 
     if not connected:
         print("[MAIN] Failed to connect to display process after several retries. Exiting.")
         sys.exit(1)
 
-    # 7. Start the coordinator process.
-    coordinator_process = multiprocessing.Process(target=coordinator_main, args=(queues, shared_state, display_socket))
+    # 8. Start the coordinator process.
+    coordinator_process = multiprocessing.Process(
+        target=coordinator_main,
+        args=(queues, shared_state, display_socket, lights_process.pid),
+        name="Coordinator Process"
+    )
     coordinator_process.start()
     print("[MAIN] Coordinator process started.")
 
-    # 8. Wait indefinitely for all processes.
+    # 9. Wait for all processes.
     coordinator_process.join()
     lights_process.join()
     normal_process.join()
+    priority_process.join()
     display_process.join()
 
 if __name__ == "__main__":

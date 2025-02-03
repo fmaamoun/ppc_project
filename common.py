@@ -1,10 +1,11 @@
 # Time intervals (in seconds)
-NORMAL_GEN_INTERVAL = 3          # Interval for generating normal vehicles
+NORMAL_GEN_INTERVAL = 4          # Interval for generating normal vehicles
+PRIORITY_GEN_INTERVAL = 21        # Interval for generating high-priority vehicles
 LIGHT_CHANGE_INTERVAL = 10       # Interval for traffic light changes
 
 # Socket configuration for the display process
 DISPLAY_HOST = "localhost"
-DISPLAY_PORT = 9999
+DISPLAY_PORT = 5000
 
 class LightState:
     """

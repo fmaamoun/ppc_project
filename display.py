@@ -9,6 +9,7 @@ def main():
     """
     # Create a TCP socket server.
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((DISPLAY_HOST, DISPLAY_PORT))
     server_socket.listen(1)
     print(f"[DISPLAY] Server listening on {DISPLAY_HOST}:{DISPLAY_PORT}. Waiting for connection...")
@@ -25,10 +26,9 @@ def main():
             for msg in messages:
                 if msg:
                     print(msg)
-    except KeyboardInterrupt:
-        print("[DISPLAY] Shutting down display server.")
     except Exception as e:
         print(f"[DISPLAY] Error: {e}")
     finally:
+        print("[DISPLAY] Shutting down display server.")
         conn.close()
         server_socket.close()
