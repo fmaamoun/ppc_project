@@ -4,7 +4,6 @@ from common import DISPLAY_HOST, DISPLAY_PORT
 def main():
     """
     Entry point for the display process.
-
     Sets up a TCP server on DISPLAY_HOST:DISPLAY_PORT and prints incoming messages.
     """
     # Create a TCP socket server.
@@ -14,9 +13,11 @@ def main():
     server_socket.listen(1)
     print(f"[DISPLAY] Server listening on {DISPLAY_HOST}:{DISPLAY_PORT}. Waiting for connection...")
 
+    # Wait for connection
     conn, addr = server_socket.accept()
     print(f"[DISPLAY] Connection established with {addr}.")
 
+    # Handle connection
     try:
         while True:
             data = conn.recv(1024)

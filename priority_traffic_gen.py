@@ -16,18 +16,18 @@ def send_priority_signal(lights_pid):
         print("[PRIORITY_GEN] Error: Lights process not found!")
 
 
-def run_priority_traffic(queues, lights_pid, shared_state):
+def run_priority_traffic(queues, shared_state):
     """
-    Generates high-priority vehicles at a defined interval.
-    Sends them to the appropriate message queue.
-    Before sending the signal, stores the vehicle's source in the shared state so that
-    the lights process knows which direction to set to green.
+    Continuously generates and sends priority vehicle messages to simulate priority traffic.
     """
-    vehicle_id = 0  # You can choose negative IDs for priority vehicles.
+    vehicle_id = 0
     directions = ["N", "S", "E", "W"]
 
     while True:
+        # Wait
         time.sleep(PRIORITY_GEN_INTERVAL)
+
+        # Create and send vehicle
         vehicle_id -= 1
         source = random.choice(directions)
         dest = random.choice([d for d in directions if d != source])
@@ -37,9 +37,9 @@ def run_priority_traffic(queues, lights_pid, shared_state):
         # Store the requested priority direction in the shared state.
         shared_state['priority_direction'] = source
 
-        # Notify the lights process.
-        send_priority_signal(lights_pid)
 
-
-def main(queues, lights_pid, shared_state):
-    run_priority_traffic(queues, lights_pid, shared_state)
+def main(queues, shared_state):
+    """
+    Entry point for the priority traffic generation process.
+    """
+    run_priority_traffic(queues, shared_state)

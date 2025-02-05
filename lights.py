@@ -1,47 +1,44 @@
 import time
 import signal
-
 from common import LightState, LIGHT_CHANGE_INTERVAL
 
 # Global flags
-priority_override = False     # True when a SIGUSR1 is received, meaning "go to priority"
-in_priority_mode = False      # True when we are currently in priority mode
-just_restored = False         # True when a SIGUSR2 has just been received, forcing a restoration
+priority_mode = False
+priority_requested = False
+just_restored = False
 
-def handle_priority_signal(signum, frame):
+def handle_priority(signum, frame):
     """
-    Sets a flag indicating we should enter priority mode exactly once.
+    Triggered by SIGUSR1: request to switch to priority mode.
     """
-    global priority_override
-    priority_override = True
+    global priority_requested
+    priority_requested = True
 
-def handle_restore_signal(signum, frame):
+def handle_restore(signum, frame):
     """
-    Restores normal mode immediately (SIGUSR2).
+    Triggered by SIGUSR2: restore normal mode immediately.
     """
-    global in_priority_mode, just_restored
-    in_priority_mode = False
+    global priority_mode, just_restored
+    priority_mode = False
     just_restored = True
 
 def set_priority_light(direction):
     """
-    Returns a LightState where only 'direction' is green.
+    Returns a LightState that is green only for the specified direction.
     """
     if direction == "N":
-        return LightState(north=1, south=0, east=0, west=0)
+        return LightState(1, 0, 0, 0)
     elif direction == "S":
-        return LightState(north=0, south=1, east=0, west=0)
+        return LightState(0, 1, 0, 0)
     elif direction == "E":
-        return LightState(north=0, south=0, east=1, west=0)
-    elif direction == "W":
-        return LightState(north=0, south=0, east=0, west=1)
+        return LightState(0, 0, 1, 0)
     else:
-        # Fallback to north/south green
-        return LightState(north=1, south=1, east=0, west=0)
+        # Default to West if unknown direction
+        return LightState(0, 0, 0, 1)
 
-def toggle_lights(state: LightState) -> LightState:
+def toggle_lights(state):
     """
-    Normal toggle: If N/S is green, switch to E/W; if E/W is green, switch to N/S.
+    Toggles between N/S and E/W green lights.
     """
     return LightState(
         north=1 - state.north,
@@ -52,54 +49,45 @@ def toggle_lights(state: LightState) -> LightState:
 
 def main(shared_state):
     """
-    Lights process that:
-      - Listens for SIGUSR1 => enter priority mode (once),
-      - Listens for SIGUSR2 => restore normal mode immediately,
-      - Otherwise toggles lights in normal cycles.
-
-    La boucle principale vérifie toutes les 100ms afin de réagir rapidement aux signaux.
+    Entry point for the lights process.
     """
-    global priority_override, in_priority_mode, just_restored
+    global priority_mode, priority_requested, just_restored
 
-    signal.signal(signal.SIGUSR1, handle_priority_signal)
-    signal.signal(signal.SIGUSR2, handle_restore_signal)
+    # Set up signal handlers
+    signal.signal(signal.SIGUSR1, handle_priority)
+    signal.signal(signal.SIGUSR2, handle_restore)
 
-    # État initial normal : N/S vert, E/W rouge
-    state = LightState(north=1, south=1, east=0, west=0)
-    shared_state["state"] = state
+    # Initial normal state: N/S green, E/W red
+    current_state = LightState(1, 1, 0, 0)
+    shared_state["state"] = current_state
 
-    step_time = 0.1  # Vérification toutes les 100 ms
-    elapsed = 0.0    # Temps écoulé dans l'état normal actuel
+    step_time = 0.1  # 100 ms
+    elapsed = 0.0
 
     while True:
-        # Si nous venons juste de restaurer le mode normal, on remet immédiatement l'état normal.
+        # If we've just restored, reset to the default normal state
         if just_restored:
-            # Ici, on choisit l'état normal par défaut (celui d'initialisation) :
-            state = LightState(north=1, south=1, east=0, west=0)
-            shared_state["state"] = state
+            current_state = LightState(1, 1, 0, 0)
+            shared_state["state"] = current_state
             elapsed = 0.0
             just_restored = False
 
-        # Si nous ne sommes PAS en mode priorité :
-        if not in_priority_mode:
-            # Vérifier si un SIGUSR1 a été reçu pour passer en mode priorité.
-            if priority_override:
-                priority_override = False
-                in_priority_mode = True
-
-                # Lecture de la direction désirée depuis shared_state (par défaut "N")
+        # If we are not in priority mode, either check for priority or handle normal toggling
+        if not priority_mode:
+            if priority_requested:
+                priority_requested = False
+                priority_mode = True
                 direction = shared_state.get("priority_direction", "N")
-                prio_state = set_priority_light(direction)
-                shared_state["state"] = prio_state
+                current_state = set_priority_light(direction)
+                shared_state["state"] = current_state
             else:
-                # Fonctionnement normal : on bascule d'état après LIGHT_CHANGE_INTERVAL
+                # Normal mode: switch lights after the configured interval
                 if elapsed >= LIGHT_CHANGE_INTERVAL:
-                    state = toggle_lights(state)
-                    shared_state["state"] = state
+                    current_state = toggle_lights(current_state)
+                    shared_state["state"] = current_state
                     elapsed = 0.0
-
                 time.sleep(step_time)
                 elapsed += step_time
         else:
-            # En mode priorité, on ne fait rien d'autre que d'attendre le signal de restauration.
+            # In priority mode, wait for a restore signal
             time.sleep(step_time)

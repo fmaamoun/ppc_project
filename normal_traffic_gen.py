@@ -6,12 +6,10 @@ from ipc_utils import send_obj_message
 
 def run_normal_traffic(queues):
     """
-    Continuously generate normal vehicles.
-
-    Each vehicle is assigned a random source and destination (ensuring they differ).
+    Continuously generates and sends vehicle messages to simulate normal traffic.
     """
     vehicle_id = 0
-    directions = ["N", "S", "E", "W"]
+    directions = ["N", "E", "S", "W"]
 
     while True:
         # Create and send vehicle

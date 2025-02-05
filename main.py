@@ -19,11 +19,9 @@ def main():
     display_process.start()
     print("[MAIN] Display process started.")
 
-    # 2. Create a Manager for shared memory and initialize the traffic light state.
+    # 2. Create a Manager for shared memory
     manager = multiprocessing.Manager()
     shared_state = manager.dict()
-    shared_state['state'] = LightState(north=1, south=1, east=0, west=0)  # Initial state
-    shared_state['priority_direction'] = None  # Initial state
 
     # 3. Initialize the SysV IPC message queues.
     queues = init_message_queues()
@@ -39,27 +37,13 @@ def main():
     print("[MAIN] Normal traffic generation process started.")
 
     # 6. Start the priority traffic generation process
-    priority_process = multiprocessing.Process(target=priority_traffic_main, args=(queues, lights_process.pid, shared_state), name="Priority Traffic Process")
+    priority_process = multiprocessing.Process(target=priority_traffic_main, args=(queues, shared_state), name="Priority Traffic Process")
     priority_process.start()
     print("[MAIN] Priority traffic generation process started.")
 
     # 7. Establish a TCP connection to the display process.
-    connected = False
-    max_retries = 10  # Retry limit
-    retries = 0
-    while not connected and retries < max_retries:
-        try:
-            display_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            display_socket.connect((DISPLAY_HOST, DISPLAY_PORT))
-            connected = True
-            print("[MAIN] Coordinator successfully connected to display process.")
-        except Exception as e:
-            print(f"[MAIN] Waiting for display process... {e}")
-            retries += 1
-
-    if not connected:
-        print("[MAIN] Failed to connect to display process after several retries. Exiting.")
-        sys.exit(1)
+    display_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    display_socket.connect((DISPLAY_HOST, DISPLAY_PORT))
 
     # 8. Start the coordinator process.
     coordinator_process = multiprocessing.Process(

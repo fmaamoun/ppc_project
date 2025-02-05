@@ -1,7 +1,7 @@
 # Time intervals (in seconds)
-NORMAL_GEN_INTERVAL = 4          # Interval for generating normal vehicles
-PRIORITY_GEN_INTERVAL = 21        # Interval for generating high-priority vehicles
-LIGHT_CHANGE_INTERVAL = 10       # Interval for traffic light changes
+NORMAL_GEN_INTERVAL = 3         # Interval for generating normal vehicles
+PRIORITY_GEN_INTERVAL = 21      # Interval for generating high-priority vehicles
+LIGHT_CHANGE_INTERVAL = 10      # Interval for traffic light changes
 
 # Socket configuration for the display process
 DISPLAY_HOST = "localhost"
@@ -11,8 +11,6 @@ class LightState:
     """
     Represents the state of the traffic lights at the intersection.
     Each direction is represented by an integer (1 for green, 0 for red).
-    For this simulation, the North-South lights are identical and opposite
-    to the East-West lights.
     """
     def __init__(self, north=1, south=1, east=0, west=0):
         self.north = north
@@ -48,6 +46,5 @@ class VehicleMessage:
         self.priority = priority
 
     def __repr__(self):
-        return (f"VehicleMessage(ID={self.vehicle_id}, "
-                f"From={self.source_road} -> To={self.dest_road}, "
-                f"Priority={self.priority})")
+        """Return a string representation of the VehicleMessage."""
+        return f"Vehicle {self.vehicle_id} from {self.source_road} to {self.dest_road} (Priority={self.priority})"
