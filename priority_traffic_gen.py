@@ -6,16 +6,7 @@ from common import VehicleMessage, PRIORITY_GEN_INTERVAL
 from ipc_utils import send_obj_message
 
 
-def send_priority_signal(lights_pid):
-    """
-    Sends a SIGUSR1 signal to the lights process to indicate a high-priority vehicle is approaching.
-    """
-    try:
-        os.kill(lights_pid, signal.SIGUSR1)
-    except ProcessLookupError:
-        print("[PRIORITY_GEN] Error: Lights process not found!")
-
-def run_priority_traffic(queues, shared_state):
+def run_priority_traffic(queues, shared_state, lights_pid):
     """
     Continuously generates and sends priority vehicle messages to simulate priority traffic.
     """
@@ -33,11 +24,12 @@ def run_priority_traffic(queues, shared_state):
         vehicle = VehicleMessage(vehicle_id, source, dest, priority=True)
         send_obj_message(queues[source], vehicle)
 
-        # Store the requested priority direction in the shared state.
-        shared_state['priority_direction'] = source
+        # Signal lights to change for the priority vehicle.
+        shared_state['priority_direction'] = vehicle.source_road
+        os.kill(lights_pid, signal.SIGUSR1)
 
-def main(queues, shared_state):
+def main(queues, shared_state, lights_pid):
     """
     Entry point for the priority traffic generation process.
     """
-    run_priority_traffic(queues, shared_state)
+    run_priority_traffic(queues, shared_state, lights_pid)

@@ -81,8 +81,7 @@ def main():
     print("[MAIN] Normal traffic generation process started.")
 
     # Start the priority traffic generation process
-    priority_process = multiprocessing.Process(target=priority_traffic_main, args=(queues, shared_state),
-                                               name="Priority Traffic Process")
+    priority_process = multiprocessing.Process(target=priority_traffic_main, args=(queues, shared_state, lights_process.pid), name="Priority Traffic Process")
     priority_process.start()
     processes.append(priority_process)
     print("[MAIN] Priority traffic generation process started.")
@@ -102,8 +101,7 @@ def main():
     print("[MAIN] Coordinator process started.")
 
     # Start a separate thread to listen for user input to stop processes
-    input_thread = threading.Thread(target=listen_for_exit, args=(processes, queues, shared_state),
-                                    daemon=True)
+    input_thread = threading.Thread(target=listen_for_exit, args=(processes, queues, shared_state), daemon=True)
     input_thread.start()
 
     # Wait for all processes.

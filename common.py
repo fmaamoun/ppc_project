@@ -19,6 +19,9 @@ class LightState:
         self.west = west
 
     def __eq__(self, other):
+        """
+        Checks if two LightState objects are equal
+        """
         if isinstance(other, LightState):
             return (self.north == other.north and
                     self.south == other.south and
@@ -27,7 +30,22 @@ class LightState:
         return False
 
     def __repr__(self):
+        """Return a string representation of the LightState."""
         return f"LightState(N={self.north}, S={self.south}, E={self.east}, W={self.west})"
+
+    def is_priority_vehicle_light(self):
+        """
+        Checks if only one direction is green, indicating priority vehicles.
+        """
+        return sum([self.north, self.south, self.east, self.west]) == 1
+
+    def get_active_directions(self):
+        """
+        Returns a list of active directions where the light is green.
+        """
+        directions = {"N": self.north, "S": self.south, "E": self.east, "W": self.west}
+        return [dir for dir, state in directions.items() if state == 1]
+
 
 class VehicleMessage:
     """
@@ -48,3 +66,10 @@ class VehicleMessage:
     def __repr__(self):
         """Return a string representation of the VehicleMessage."""
         return f"Vehicle {self.vehicle_id} from {self.source_road} to {self.dest_road} (Priority={self.priority})"
+
+    def is_turning_right(self):
+        """
+        Returns True if the vehicle is turning right.
+        """
+        right_of = {"N": "E", "E": "S", "S": "W", "W": "N"}
+        return self.dest_road == right_of.get(self.source_road)
