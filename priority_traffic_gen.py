@@ -15,7 +15,6 @@ def send_priority_signal(lights_pid):
     except ProcessLookupError:
         print("[PRIORITY_GEN] Error: Lights process not found!")
 
-
 def run_priority_traffic(queues, shared_state):
     """
     Continuously generates and sends priority vehicle messages to simulate priority traffic.
@@ -36,7 +35,6 @@ def run_priority_traffic(queues, shared_state):
 
         # Store the requested priority direction in the shared state.
         shared_state['priority_direction'] = source
-
 
 def main(queues, shared_state):
     """

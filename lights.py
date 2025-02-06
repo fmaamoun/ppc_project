@@ -2,11 +2,13 @@ import time
 import signal
 from common import LightState, LIGHT_CHANGE_INTERVAL
 
+
 # Global flags
 priority_mode = False
 priority_requested = False
 just_restored = False
 
+# Utility functions
 def handle_priority(signum, frame):
     """
     Triggered by SIGUSR1: request to switch to priority mode.
@@ -26,15 +28,13 @@ def set_priority_light(direction):
     """
     Returns a LightState that is green only for the specified direction.
     """
-    if direction == "N":
-        return LightState(1, 0, 0, 0)
-    elif direction == "S":
-        return LightState(0, 1, 0, 0)
-    elif direction == "E":
-        return LightState(0, 0, 1, 0)
-    else:
-        # Default to West if unknown direction
-        return LightState(0, 0, 0, 1)
+    state = {
+        "N": LightState(1, 0, 0, 0),
+        "S": LightState(0, 1, 0, 0),
+        "E": LightState(0, 0, 1, 0),
+        "W": LightState(0, 0, 0, 1)
+    }
+    return state.get(direction)
 
 def toggle_lights(state):
     """
@@ -47,6 +47,7 @@ def toggle_lights(state):
         west=1 - state.west
     )
 
+# Main
 def main(shared_state):
     """
     Entry point for the lights process.

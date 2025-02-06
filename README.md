@@ -1,31 +1,52 @@
-# Arborescence v0
+# **README: Multi-Process Traffic Simulation**
 
-```
-.
-├── main.py
-├── normal_traffic_gen.py
-├── priority_traffic_gen.py
-├── coordinator.py
-├── lights.py
-├── display.py
-├── ipc_utils.py
-├── common.py
-└── README.md
+## **Project Overview**
+This Python project simulates a traffic control system using multiple processes to manage normal and priority vehicle traffic, coordinate traffic lights, and display system updates. It uses **multiprocessing** for process management and **SysV IPC message queues** for inter-process communication.
+
+---
+
+## **1. Installation & Dependencies**
+Ensure you have **Python 3.8+** installed. Install the required dependencies using:
+
+```bash
+pip install -r requirements.txt
 ```
 
-- **main.py**  
-  Point d’entrée qui lance et arrête proprement tous les processus.  
-- **normal_traffic_gen.py**  
-  Génère le trafic “normal”.  
-- **priority_traffic_gen.py**  
-  Génère le trafic “prioritaire” et envoie un signal au process `lights`.  
-- **coordinator.py**  
-  Gère la logique de passage pour tous les véhicules, interagit avec l’état des feux et lit les messages depuis les files.  
-- **lights.py**  
-  Gère les états des feux de circulation (partagé en mémoire) et réagit aux signaux pour laisser passer les véhicules prioritaires.  
-- **display.py**  
-  Affiche l’état du carrefour en temps réel (communication par socket).  
-- **ipc_utils.py**  
-  Module utilitaire contenant les fonctions d’initialisation et de gestion des files de messages, mémoire partagée, signaux, etc.  
-- **common.py**  
-  Contient d’éventuelles constantes, énumérations, structures de données partagées (par exemple la définition du format des messages).  
+---
+
+## **2. How to Run the Simulation**
+1. **Open a terminal** and navigate to the project directory.
+2. Run the following command to start the simulation:
+
+   ```bash
+   python3 main.py
+   ```
+
+3. The program will start multiple processes:
+   - **Display Process**: Shows real-time updates on the traffic system.
+   - **Traffic Lights Process**: Controls traffic light states.
+   - **Normal Traffic Generator**: Simulates regular vehicle traffic.
+   - **Priority Traffic Generator**: Simulates high-priority vehicles (e.g., emergency vehicles).
+   - **Coordinator Process**: Manages traffic based on light states and vehicle priority.
+
+4. Once the simulation starts, you'll see log messages updating traffic conditions.
+
+---
+
+## **3. How to Stop the Simulation**
+- While the simulation is running, **press 'j'** in the terminal and hit **Enter** to safely terminate all processes and clean up resources.
+
+---
+
+## **4. File Descriptions**
+| File                    | Description |
+|-------------------------|-------------|
+| `main.py`               | Launches and manages all processes. |
+| `coordinator.py`        | Handles vehicle movement based on traffic light states. |
+| `lights.py`             | Manages traffic light changes and priority overrides. |
+| `display.py`           | Sets up a TCP server to display system logs. |
+| `normal_traffic_gen.py` | Generates normal vehicle traffic. |
+| `priority_traffic_gen.py` | Generates priority vehicles (e.g., emergency vehicles). |
+| `ipc_utils.py`         | Handles message queues using SysV IPC. |
+| `common.py`           | Defines shared settings like light intervals and vehicle message structures. |
+| `requirements.txt`     | Lists all required Python dependencies. |

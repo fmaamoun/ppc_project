@@ -4,9 +4,11 @@ import signal
 from ipc_utils import receive_obj_message
 from common import LightState
 
+
 # Global flags
 last_state = None
 
+# Utility functions
 def send_update(display_socket, msg):
     """
     Sends a message to the display process.
@@ -30,17 +32,11 @@ def get_priority_light(direction):
 def is_turning_right(vehicle):
     """
     Returns True if the vehicle is turning right.
-    Assumes roads are labeled "N", "E", "S", "W" in clockwise order.
     """
     right_of = {"N": "E", "E": "S", "S": "W", "W": "N"}
     return vehicle.dest_road == right_of.get(vehicle.source_road)
 
-def process_vehicle(vehicle, display_socket):
-    """
-    Processes a single vehicle by sending a pass update message.
-    """
-    send_update(display_socket, f"[COORDINATOR] ✅ {vehicle} PASSES.")
-
+# Process vehicle
 def process_priority_vehicle(vehicle, shared_state, display_socket, lights_pid):
     """
     Processes a high-priority vehicle.
@@ -73,20 +69,13 @@ def process_priority_vehicle(vehicle, shared_state, display_socket, lights_pid):
 def process_pair(vehicle1, vehicle2, display_socket):
     """
     Processes a pair of non-priority vehicles from opposite directions according to the turning-right rule.
-
-    Rule (for non-priority vehicles):
-      - If one vehicle is turning right and the other is not, the turning-right vehicle passes first.
-      - Otherwise, they are processed in FIFO order.
     """
-    if is_turning_right(vehicle1) and not is_turning_right(vehicle2):
-        process_vehicle(vehicle1, display_socket)
-        process_vehicle(vehicle2, display_socket)
-    elif is_turning_right(vehicle2) and not is_turning_right(vehicle1):
-        process_vehicle(vehicle2, display_socket)
-        process_vehicle(vehicle1, display_socket)
+    if is_turning_right(vehicle2) and not is_turning_right(vehicle1):
+        send_update(display_socket, f"[COORDINATOR] ✅ {vehicle2} PASSES.")
+        send_update(display_socket, f"[COORDINATOR] ✅ {vehicle1} PASSES.")
     else:
-        process_vehicle(vehicle1, display_socket)
-        process_vehicle(vehicle2, display_socket)
+        send_update(display_socket, f"[COORDINATOR] ✅ {vehicle1} PASSES.")
+        send_update(display_socket, f"[COORDINATOR] ✅ {vehicle2} PASSES.")
 
 def process_non_priority_vehicles(non_priority_vehicles, active_directions, display_socket):
     """
@@ -101,19 +90,13 @@ def process_non_priority_vehicles(non_priority_vehicles, active_directions, disp
     else:
         send_update(display_socket, "-------------------------------- Solitary  --------------------------------")
         for vehicle in non_priority_vehicles.values():
-            process_vehicle(vehicle, display_socket)
+            send_update(display_socket, f"[COORDINATOR] ✅ {vehicle} PASSES.")
 
+# Main
 def main(queues, shared_state, display_socket, lights_pid):
     """
-    The coordinator process works as follows:
-      1. Retrieve the current traffic lights state from shared_state.
-      2. If the traffic lights change, send an update to the display.
-      3. If the lights are green for one axis (NS or EW), attempt to non-blocking retrieve one vehicle
-         from each of the two active queues.
-      4. High-priority vehicles are processed immediately (solitary) and bypass pairing.
-         For non-priority vehicles:
-           - If vehicles from both opposite directions are available, process them as a pair using the turning-right rule.
-           - If only one vehicle is available, process it individually.
+    Entry point for the coordinator process.
+    Allows all vehicles (priority or not) to pass according to traffic regulations and the state of traffic lights.
     """
     # Print the initial traffic lights state.
     current_state = shared_state.get("state")
@@ -156,9 +139,8 @@ def main(queues, shared_state, display_socket, lights_pid):
                     else:
                         non_priority_vehicles[direction] = vehicle
 
-            # After checking all active directions, process any remaining non-priority vehicles.
+            # After checking all active directions, process non-priority vehicles.
             if non_priority_vehicles:
                 process_non_priority_vehicles(non_priority_vehicles, active_directions, display_socket)
 
-        # Small delay to avoid a busy loop.
-        time.sleep(0.1)
+        time.sleep(0.1) # 100 ms
